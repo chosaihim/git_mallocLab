@@ -31,8 +31,6 @@ team_t team = {
     /* Second member's email address (leave blank if none) */
     ""};
 
-
-
 // *** Variables *** //
 #define WSIZE 4 // word and header footer 사이즈를 byte로.
 #define DSIZE 8 // double word size를 byte로
@@ -40,7 +38,6 @@ team_t team = {
 
 static char *heap_listp = 0;
 static char *start_nextfit = 0;
-
 
 //******MACROs*************//
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
@@ -65,6 +62,8 @@ static char *start_nextfit = 0;
 #define PREV_BLKP(bp) ((char *)(bp)-GET_SIZE(((char *)(bp)-DSIZE)))
 
 //*******Functions*********//
+
+/* 우성 : 아주 멋진 프로토타입 정리네요. 매우 C스럽고 깔끔합니다! 저희도 차용하겠습니다 */
 int mm_init(void);
 static void *extend_heap(size_t words);
 void *mm_malloc(size_t size);
@@ -72,8 +71,6 @@ void mm_free(void *ptr);
 static void *coalesce(void *bp);
 static void *find_fit(size_t asize);
 static void place(void *bp, size_t asize);
-
-
 
 /* 
  * mm_init - initialize the malloc package.
@@ -90,13 +87,13 @@ int mm_init(void)
   PUT(heap_listp + (2 * WSIZE), PACK(DSIZE, 1));
   PUT(heap_listp + (3 * WSIZE), PACK(0, 1));
   heap_listp += (2 * WSIZE);
+  /* 우성 : 훌륭한 타이밍 입니다. */
   start_nextfit = heap_listp;
 
   if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
     return -1;
   return 0;
 }
-
 
 static void *extend_heap(size_t words)
 { // 새 가용 블록으로 힙 확장
@@ -117,7 +114,6 @@ static void *extend_heap(size_t words)
   return coalesce(bp);
 }
 
-
 static void *coalesce(void *bp)
 {
   size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
@@ -129,7 +125,7 @@ static void *coalesce(void *bp)
     return bp;
   }
   else if (prev_alloc && !next_alloc)
-  {// case2 - 이전 블록은 할당 상태, 다음 블록은 가용상태. 현재 블록은 다음 블록과 통합 됨.
+  {                                        // case2 - 이전 블록은 할당 상태, 다음 블록은 가용상태. 현재 블록은 다음 블록과 통합 됨.
     size += GET_SIZE(HDRP(NEXT_BLKP(bp))); // 다음 블록의 헤더만큼 사이즈 추가?
     PUT(HDRP(bp), PACK(size, 0));          // 헤더 갱신
     PUT(FTRP(bp), PACK(size, 0));          // 푸터 갱신
@@ -137,6 +133,23 @@ static void *coalesce(void *bp)
   else if (!prev_alloc && next_alloc)
   { // case 3 - 이전 블록은 가용상태, 다음 블록은 할당 상태. 이전 블록은 현재 블록과 통합.
     size += GET_SIZE(HDRP(PREV_BLKP(bp)));
+
+    /* 우성 : 깨달은 내용이실 수 있지만 아래 "?"가 저에게 주석을 남기게 만들어 주석을 남깁니다." */
+    /* mm.c 에서는 NEXT_BLOCK에 접근하기 위해서는 자신의 Header를 이용하고, 
+    PREV_BLKP에 접근하기 위해서는 이전 녀석의 Footer(본인보다 DSIZE 앞에있는) 에 접근합니다. 
+    따라서 나의 (병합되면서도 Footer의 신분을 유지할)Footer를 선 변경해주는 행동이 
+    PREV_BLKP과 NEXT_BLKP에 접근하는 것에 전혀 영향을 주지 않습니다. 
+    그래서 Footer에 먼저 size 삽입을 진행하고 곧 나의 Header가 될 이전녀석의 Header에 
+                        이전녀석의 Footer를 타고 접근하여 size를 Pack해주는 순서로 구성되어있습니다.
+    
+    아래와 같은 코드로 대체도 가능합니다!
+    bp = PREV_BLKP(bp);
+    PUT(HDRP(bp),PACK(size,0));
+    PUT(FTRP(bp),PACK(size,0));
+    
+    
+    알고 계실 것 같지만 키보드 타이핑 하고싶어서 길게 적어보았습니다.ㅎㅎ*/
+
     PUT(FTRP(bp), PACK(size, 0));
     PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0)); // 헤더를 이전 블록의 BLKP만큼 통합?
     bp = PREV_BLKP(bp);
@@ -148,10 +161,31 @@ static void *coalesce(void *bp)
     PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
     bp = PREV_BLKP(bp);
   }
+
+  /* 우성 : 엄밀하게 말하면 아래 행위(start_nextfit = bp)는 next fit이 아니라고 생각합니다. 
+  next fit은 (malloc을 진행 하면서) 검색을 마친 후 검색 포인트를 마지막 검색 포인트에 그대로 두고 
+  이후에 그 point부터 탐색을 진행하는 방법입니다.
+
+  하지만 coalesce는 malloc을 진행하면서 실행되는 함수가 아니라, 
+  free가 진행될 때 혹은 extend heap이 진행될 때 사용됩니다.
+  
+  그럼 왜 버그가 날까용
+  마지막으로 할당한 block이 free가 되고 앞의 block과 합쳐지면 nextfit의 행방은 어떻게 될까요?
+  전혀 의미가 없는 위치인 block 사이에 끼어있습니다. 이때만 nextfit을 bp로 변경해줘야합니다.
+
+
+  아래 코드는 free가 될 때, extend heap이 될때, 조건에 상관없이 모두 nextfit pointer를 변경해주기 때문에 
+  필요한 조건을 포함하는 더 큰 조건에서 start_nextfit을 변경해주고 있어서
+  next fit이 아니라고 생각했습니다. 
+  
+  저의 짧은 식견이오니 저에게 누나의 의견을 꼭 들려주세요.
+
+  */
+
   start_nextfit = bp;
+
   return bp;
 }
-
 
 void *mm_malloc(size_t size)
 {
@@ -240,16 +274,25 @@ void mm_free(void *bp)
   coalesce(bp);
 }
 
-
-
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
 void *mm_realloc(void *ptr, size_t size)
 {
+
   void *oldptr = ptr;
   void *newptr;
   size_t copySize;
+
+  /* 우성 : 아래 realloc은 현재 메모리에 뒷공간이 충분히 남아 있어도 
+  그 곳이 아닌(아닐 확률이 매우높은) 위치에 먼저 size만큼 할당을 진행한 후에 복사를 합니다.
+  
+  여유가 있으시면 위에서 언급한 경우 즉, 
+  현재 메모리 뒷공간을 활용하여 재할당할 수 있는지 확인하는 조건문을 추가하여
+  그 행동을 우선시 하게 만들어보세요.
+
+  점수가 올라갑니다!
+  */
 
   newptr = mm_malloc(size);
   if (newptr == NULL)
